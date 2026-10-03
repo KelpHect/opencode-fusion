@@ -143,6 +143,23 @@ composite `Fusion` model, mirroring Devin's picker entries:
   SDK factory is inert (e.g. `aisdk:` plugins that mint models in a language
   hook instead) work once that provider has served one request.
 
+### Interactive picker + status line (TUI)
+
+The package also ships a TUI component (`tui.ts`) that the OpenCode TUI loads
+automatically:
+
+- **`/fusion` with no arguments** opens the pairing wizard: a select dialog
+  for the lead (every model × effort variant as searchable rows), then a
+  second dialog for the partner. Picking both runs `configure` for you.
+  `/fusion <args>` still forwards to the command surface below.
+- **Prompt footer segment** shows `fusion ●lead + ○partner` for the active
+  session. The side that is currently doing work lights up green —
+  `●` while the lead is generating and `●` on the partner while a delegated
+  handoff is running in its child session. Pairings are remembered per
+  session and also recovered from `/fusion status` output, so the line stays
+  correct across restarts and for sessions configured via text commands or
+  composite presets.
+
 ## Commands
 
 | Command | Effect |

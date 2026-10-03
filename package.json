@@ -31,14 +31,17 @@
     "src",
     "index.ts",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "tui.ts"
   ],
   "engines": {
     "node": ">=22"
   },
   "dependencies": {
     "@opencode/plugin": "2.0.21",
-    "effect": "4.0.0-rc.112"
+    "effect": "4.0.0-rc.112",
+    "@opentui/solid": "0.5.14",
+    "solid-js": "1.9.12"
   },
   "devDependencies": {
     "@types/node": "26.6.3",
