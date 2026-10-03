@@ -5,7 +5,7 @@
 //   /fusion <args>     → forwarded to the server-side /fusion command
 //   prompt footer      → "●lead + ○partner" — the active side lights up
 
-import type { Plugin } from '@opencode/plugin/tui'
+import { Plugin } from '@opencode/plugin/tui'
 import { jsx } from '@opentui/solid/jsx-runtime'
 import { createMemo } from 'solid-js'
 import {
@@ -25,7 +25,9 @@ function routeSession(ctx: Ctx): string | undefined {
 }
 
 async function pickPairing(ctx: Ctx, sessionID: string, pairings: Pairings) {
-  const listed = await ctx.client.model.list({}).catch(() => undefined)
+  const listed = await ctx.client.model
+    .list({ location: ctx.location ?? ctx.data.location.default() })
+    .catch(() => undefined)
   const models = (Array.isArray(listed) ? listed : (listed as any)?.data) ?? []
   const options = buildModelOptions(models)
   if (options.length === 0) {
@@ -141,7 +143,7 @@ function StatusLine(props: { ctx: Ctx; input: { sessionID?: string }; pairings: 
   })
 }
 
-export default {
+export default Plugin.define({
   id: 'opencode.fusion.tui',
   setup(ctx: Ctx) {
     const [pairings, setPairings] = ctx.storage.store<Pairings>('fusion-pairings', {
@@ -205,4 +207,4 @@ export default {
       unclaim()
     }
   },
-} satisfies Plugin.Definition
+})

@@ -24,7 +24,12 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./tui": {
+      "types": "./tui.ts",
+      "import": "./tui.ts",
+      "default": "./tui.ts"
+    }
   },
   "files": [
     "dist",
@@ -39,14 +44,14 @@
   },
   "dependencies": {
     "@opencode/plugin": "2.0.21",
-    "effect": "4.0.0-rc.112",
-    "@opentui/solid": "0.5.14",
-    "solid-js": "1.9.12"
+    "effect": "4.0.0-rc.112"
   },
   "devDependencies": {
     "@types/node": "26.6.3",
     "tsx": "4.23.15",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "@opentui/solid": "0.5.14",
+    "solid-js": "1.9.12"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -54,5 +59,10 @@
     "test": "node --import tsx --test tests/*.test.mjs",
     "test:e2e": "node tests/e2e/run.mjs",
     "pack:check": "npm pack --dry-run"
+  },
+  "peerDependencies": {
+    "@opentui/core": ">=0.5.8",
+    "@opentui/solid": ">=0.5.8",
+    "solid-js": ">=1.9.0"
   }
 }
