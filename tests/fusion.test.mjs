@@ -29,6 +29,15 @@ const MODELS = [
     capabilities: { tools: true, input: ['text'], output: ['text'] },
     status: 'active',
   },
+  {
+    id: 'worker2',
+    providerID: 'fakeB',
+    name: 'Worker 2',
+    variants: [{ id: 'max' }],
+    limit: { context: 200_000, output: 16_000 },
+    capabilities: { tools: true, input: ['text'], output: ['text'] },
+    status: 'active',
+  },
 ]
 
 function memoryStorage() {
@@ -702,4 +711,95 @@ test('FusionError carries code', () => {
   const e = new FusionError('x', 'y')
   assert.equal(e.code, 'x')
   assert.equal(e.message, 'y')
+})
+
+test('configure accepts a partner pool and reports index', async () => {
+  const { controller } = await configured()
+  await controller.configure('root1', 'fakeA/lead#max', 'fakeB/worker#max,fakeB/worker2#max')
+  const status = await controller.status('root1')
+  assert.deepEqual(status.data.partnerPool, ['fakeB/worker#max', 'fakeB/worker2#max'])
+  assert.equal(status.data.partnerIndex, 0)
+  assert.equal(status.data.partner, 'fakeB/worker#max')
+})
+
+test('failed handoff escalates to the next pool partner, same child session', async () => {
+  const seen = []
+  const outcomes = [
+    { output: { sessionID: 'child1', status: 'failed', output: 'boom' } },
+    { output: { sessionID: 'child1', status: 'completed', output: 'ok' } },
+  ]
+  const runner = async (input) => {
+    seen.push(input)
+    return outcomes[seen.length - 1]
+  }
+  const { controller, sessionMap } = await configured({ runner })
+  sessionMap.set('child1', { id: 'child1', parentID: 'root1' })
+  await controller.configure('root1', 'fakeA/lead#max', 'fakeB/worker#max,fakeB/worker2#max')
+  const first = await controller.delegate({ task: 'a', brief: 'b' }, TOOL_CTX())
+  assert.ok(first.content.includes('"failed"'))
+  let status = await controller.status('root1')
+  assert.equal(status.data.partnerIndex, 1)
+  assert.equal(status.data.partner, 'fakeB/worker2#max')
+  const second = await controller.delegate({ task: 'a2', brief: 'b2' }, TOOL_CTX())
+  assert.ok(second.content.includes('"completed"'))
+  assert.equal(seen[0].model, 'fakeB/worker#max')
+  assert.equal(seen[1].model, 'fakeB/worker2#max')
+  assert.equal(seen[1].sessionID, 'child1', 'persistent partner session survives the model switch')
+  status = await controller.status('root1')
+  assert.equal(status.data.lastJob.partnerModel, 'fakeB/worker2#max')
+})
+
+test('partner index clamps at the end of the pool', async () => {
+  const seen = []
+  const runner = async (input) => {
+    seen.push(input)
+    return { output: { sessionID: 'child1', status: 'failed', output: 'x' } }
+  }
+  const { controller, sessionMap } = await configured({ runner })
+  sessionMap.set('child1', { id: 'child1', parentID: 'root1' })
+  await controller.configure('root1', 'fakeA/lead#max', 'fakeB/worker#max,fakeB/worker2#max')
+  await controller.delegate({ task: 'a', brief: 'b' }, TOOL_CTX())
+  await controller.delegate({ task: 'a2', brief: 'b2' }, TOOL_CTX())
+  const status = await controller.status('root1')
+  assert.equal(status.data.partnerIndex, 1)
+  assert.equal(seen[1].model, 'fakeB/worker2#max')
+})
+
+test('worker compaction advances the serving partner', async () => {
+  const runner = async () => ({ output: { sessionID: 'child1', status: 'completed', output: 'ok' } })
+  const { controller, sessionMap } = await configured({ runner })
+  sessionMap.set('child1', { id: 'child1', parentID: 'root1' })
+  await controller.configure('root1', 'fakeA/lead#max', 'fakeB/worker#max,fakeB/worker2#max')
+  await controller.delegate({ task: 'a', brief: 'b' }, TOOL_CTX())
+  await controller.applyCompaction({ sessionID: 'child1', system: [] })
+  const status = await controller.status('root1')
+  assert.equal(status.data.partnerIndex, 1)
+  assert.equal(status.data.partner, 'fakeB/worker2#max')
+})
+
+test('lead context mirrors into the next handoff prompt', async () => {
+  const seen = []
+  const runner = async (input) => {
+    seen.push(input)
+    return { output: { sessionID: 'child1', status: 'completed', output: 'ok' } }
+  }
+  const { controller, sessionMap } = await configured({ runner })
+  sessionMap.set('child1', { id: 'child1', parentID: 'root1' })
+  await controller.applyContext({
+    sessionID: 'root1',
+    agent: 'build',
+    system: [],
+    tools: {},
+    options: {},
+    messages: [
+      { role: 'user', content: [{ type: 'text', text: 'fix the bug' }] },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'PLAN: replace parser then run tests' }],
+      },
+    ],
+  })
+  await controller.delegate({ task: 'a', brief: 'b' }, TOOL_CTX())
+  assert.ok(seen[0].prompt.includes('leadContext'), 'handoff carries mirrored lead context')
+  assert.ok(seen[0].prompt.includes('replace parser then run tests'))
 })

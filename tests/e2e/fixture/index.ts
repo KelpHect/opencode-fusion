@@ -56,20 +56,26 @@ function wireOptions(options: Record<string, unknown>) {
   return rest
 }
 
-const workerModel = (): LanguageModelV3 => ({
+const workerModel = (modelID = 'worker'): LanguageModelV3 => ({
   specificationVersion: 'v3',
   provider: 'fakeproviderB',
-  modelId: 'worker',
+  modelId: modelID,
   supportedUrls: {},
   async doStream(options) {
-    log({ event: 'wire', provider: 'fakeproviderB', modelId: 'worker', options: wireOptions(options as never) })
+    log({ event: 'wire', provider: 'fakeproviderB', modelId: modelID, options: wireOptions(options as never) })
     const hang = fs.existsSync(HANG)
+    const fail = /failprobe/i.test(textOf(options.prompt.at(-1)))
     const sawTool = options.prompt.at(-1)?.role === 'tool'
     const stream = new ReadableStream<LanguageModelV3StreamPart>({
       async start(controller) {
         controller.enqueue({ type: 'stream-start', warnings: [] })
         if (hang) {
           await new Promise((r) => setTimeout(r, 60_000))
+        }
+        if (fail) {
+          controller.enqueue({ type: 'error', error: new Error('failprobe forced failure') })
+          controller.close()
+          return
         }
         if (sawTool) {
           controller.enqueue({ type: 'text-start', id: 't1' })
@@ -174,7 +180,9 @@ const leadModel = (): LanguageModelV3 => ({
           })
         } else if (triggered) {
           const input = JSON.stringify({
-            task: 'Run the Fusion fixture assignment.',
+            task: /failprobe/i.test(lastText)
+              ? 'Run the Fusion fixture assignment failprobe.'
+              : 'Run the Fusion fixture assignment.',
             brief: 'Fixture assignment brief.',
             ...(background ? { background: true } : {}),
           })
@@ -269,6 +277,14 @@ export default Plugin.define({
             cost: [],
             variants: [{ id: Model.VariantID.make('max'), settings: { reasoningEffort: 'max' } }],
           }),
+          Model.Info.make({
+            ...Model.Info.default(Provider.ID.make('fakeproviderB'), Model.ID.make('worker2')),
+            name: 'Fixture worker 2',
+            capabilities: { tools: true, input: ['text'], output: ['text'] },
+            limit: { context: 200_000, output: 16_000 },
+            cost: [],
+            variants: [{ id: Model.VariantID.make('max'), settings: { reasoningEffort: 'max' } }],
+          }),
         ],
       })
     })
@@ -282,7 +298,7 @@ export default Plugin.define({
     await ctx.aisdk.hook(
       'language',
       (event) => {
-        event.language = workerModel()
+        event.language = workerModel(String(event.model.id))
       },
       { providerID: 'fakeproviderB' },
     )

@@ -35,6 +35,7 @@ export declare class FusionController {
     private readonly states;
     private readonly jobs;
     private readonly childToRoot;
+    private readonly leadContextByRoot;
     private readonly runnerOverride?;
     private readonly listModelsOverride?;
     readonly workerDefinitions: Map<string, WorkerDefinition>;
@@ -68,10 +69,11 @@ export declare class FusionController {
         tools: Record<string, unknown>;
         options: Record<string, unknown>;
     }): Promise<void>;
+    private leadContextSection;
     applyCompaction(input: {
         sessionID: string;
         system: unknown[];
-    }): void;
+    }): Promise<void>;
     onSessionInterrupted(sessionID: string, reason?: string): Promise<void>;
     onModelSelected(sessionID: string, model: ModelReference): Promise<void>;
     recover(): Promise<void>;
@@ -100,7 +102,10 @@ export declare class FusionController {
     private runner;
     private availableModels;
     private effectiveOptions;
+    private normalizeState;
     private load;
+    private activePartner;
+    private advancePartner;
     private requireState;
     private setBoundedOutput;
     private jobOrUndef;

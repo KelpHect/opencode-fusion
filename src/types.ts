@@ -33,6 +33,7 @@ export interface JobRecord {
   background: boolean
   task: string
   callID: string
+  partnerModel?: string
   output?: string
   truncated?: boolean
   error?: string
@@ -46,6 +47,8 @@ export interface SessionState {
   revision: number
   lead: ModelReference
   partner: ModelReference
+  partnerPool?: ModelReference[]
+  partnerIndex?: number
   parentAgentID?: string
   workerAgentID: string
   workerSessionID?: string

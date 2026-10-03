@@ -71,7 +71,7 @@ also produces `dist/` (used when the package is installed from npm).
 Inside a session:
 
 ```
-/fusion configure <lead-model> <partner-model>
+/fusion configure <lead-model> <partner-model>[,<fallback>,...]
 ```
 
 Model references use `provider/model` with an optional `#variant`, exactly like
@@ -82,9 +82,18 @@ OpenCode's own model picker:
 /fusion configure openai/gpt-5.2#high anthropic/claude-sonnet-4.6#max
 ```
 
-Both models must already be available in your OpenCode model list
-(`/fusion models` shows what the plugin can see). Configure validates the pair
-before enabling and switches the session's model to the lead.
+A comma-separated partner list is an **escalation ladder** (preference order).
+The harness advances to the next partner when a handoff *fails*, and when the
+persistent partner's context is *compacted* — the same model-switching boundary
+Devin's Fusion uses — while the partner conversation itself stays persistent:
+
+```
+/fusion configure openai/gpt-5.2#high devin/swe-2#max,openai/o3-mini#high
+```
+
+All models must already be available in your OpenCode model list
+(`/fusion models` shows what the plugin can see). Configure validates the whole
+pool before enabling and switches the session's model to the lead.
 
 ## Commands
 
@@ -117,6 +126,15 @@ All options are optional; these are the defaults:
 - Delegation runs on OpenCode's **native subagent tool**, so permission checks,
   approvals, and parent/child session linkage behave exactly like built-in
   subagents. The child session id is persisted and reused on the next handoff.
+- **Model switching at boundaries** — a comma-separated partner pool acts as an
+  escalation ladder. A failed handoff advances to the next partner; a partner
+  context compaction advances too. The child session persists across the switch
+  (the same conversation is served by a different model), mirroring Devin
+  Fusion's compaction-boundary switching. Escalation clamps at the pool's end
+  and resets on `/fusion configure` or `/fusion reset`.
+- **Lead context mirroring** — each handoff automatically carries a bounded
+  tail of the lead's latest reasoning (`leadContext`), so the partner sees the
+  plan, not just a bare task string.
 - The partner runs under a generated agent (`fusion-worker-<hash>`) that inherits
   the parent agent's system prompt and permissions, plus Fusion restrictions:
   no `subagent`, no `fusion_delegate`, no `fusion_wait`, step cap.
@@ -132,13 +150,14 @@ All options are optional; these are the defaults:
 
 ## Limitations
 
-- **Fixed pairing, not a router.** You choose the two models; there is no
-  adaptive per-task model switching yet.
+- **Escalation-only switching.** The pool advances on failure or partner
+  compaction and clamps at the end — it does not de-escalate mid-session or
+  pick partners per-task like a full router.
 - Delegation results must not contain multiple `undefined`-valued metadata keys
   — this plugin sanitizes its own results, but be aware OpenCode 2.0.x has a
   silent tool-result drop in that case.
 - Partner persistence is per root session; `/fusion reset` starts a fresh
-  partner context.
+  partner context and resets the index.
 
 ## Development
 
@@ -151,8 +170,8 @@ npm run test:e2e   # full engine test (needs a running sandbox server)
 
 The e2e driver (`tests/e2e/run.mjs`) exercises foreground delegation, child
 session linkage and reuse, `#variant` propagation onto the wire, background
-delivery without loops, and interrupt/pause/resume — 16 checks against a fixture
-model provider (`tests/e2e/fixture`).
+delivery without loops, interrupt/pause/resume, and partner-pool escalation —
+18 checks against a fixture model provider (`tests/e2e/fixture`).
 
 ## License
 

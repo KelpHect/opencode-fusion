@@ -263,6 +263,50 @@ async function main() {
     afterResume.filter((t) => t.includes('"paused"') && t.includes('"lead"')).at(0) ?? ''
   record('resume unpauses', /"paused":\s*false/.test(resumeText), resumeText.slice(0, 200))
 
+  // -- partner pool escalation (Fusion-style model switching) ---------------
+  await api('POST', `/api/session/${root}/command`, {
+    name: 'fusion',
+    text: 'configure fakeproviderA/lead#max fakeproviderB/worker#max,fakeproviderB/worker2#max',
+  })
+  await sleep(1_500)
+  await api('POST', `/api/session/${root}/prompt`, {
+    text: 'Run the Fusion fixture assignment failprobe.',
+  })
+  await waitIdle(root)
+  await api('POST', `/api/session/${root}/command`, { name: 'fusion', text: 'status' })
+  await api('POST', `/api/session/${root}/prompt`, { text: 'Report.' })
+  await waitIdle(root)
+  const poolMsgs = messageTexts(await sessionMessages(root))
+  const poolStatus = poolMsgs.filter((t) => t.includes('"partnerIndex"')).at(0) ?? ''
+  record(
+    'failed job escalates partner pool',
+    /"partnerIndex":\s*1/.test(poolStatus) && poolStatus.includes('worker2'),
+    poolStatus.slice(0, 220),
+  )
+
+  await api('POST', `/api/session/${root}/prompt`, {
+    text: 'Run the Fusion fixture assignment.',
+  })
+  await waitIdle(root)
+  const sessions4 = await api('GET', '/api/session')
+  const children4 = (sessions4.json?.data ?? sessions4.json ?? []).filter(
+    (s) => s.parentID === root,
+  )
+  const sameChild = children4.length === 1 && children4[0]?.id === childID
+  const wire2 = fs.existsSync(FIXTURE_LOG)
+    ? fs
+        .readFileSync(FIXTURE_LOG, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((l) => JSON.parse(l))
+    : []
+  const lastWorkerWire = wire2.filter((w) => w.event === 'wire' && w.provider === 'fakeproviderB').at(-1)
+  record(
+    'switched partner model serves persistent child',
+    sameChild && lastWorkerWire?.modelId === 'worker2',
+    JSON.stringify({ sameChild, model: lastWorkerWire?.modelId }),
+  )
+
   return results
 }
 

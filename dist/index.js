@@ -154,7 +154,7 @@ async function setupFusion(ctx) {
         });
     }));
     registrations.push(await ctx.session.hook('context', (input) => controller.applyContext(input)));
-    registrations.push(await ctx.session.hook('compaction', (input) => Promise.resolve(controller.applyCompaction(input))));
+    registrations.push(await ctx.session.hook('compaction', (input) => controller.applyCompaction(input)));
     registrations.push(await ctx.tool.hook('execute.before', (input) => controller.guardToolCall({
         tool: input.tool,
         sessionID: input.sessionID,

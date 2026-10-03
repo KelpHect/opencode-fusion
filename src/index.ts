@@ -202,7 +202,7 @@ async function setupFusion(ctx: Plugin.Context) {
   )
   registrations.push(
     await ctx.session.hook('compaction', (input) =>
-      Promise.resolve(controller.applyCompaction(input as never)),
+      controller.applyCompaction(input as never),
     ),
   )
   registrations.push(
