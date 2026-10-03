@@ -12,6 +12,15 @@ export interface ModelReference {
     id: string;
     variant?: string;
 }
+/**
+ * A user-declared `/models` pairing. Each preset is registered as a composite
+ * model under a fusion provider; selecting it configures the session.
+ */
+export interface FusionPreset {
+    name?: string;
+    lead: string;
+    partner: string;
+}
 export type JobStatus = 'running' | 'completed' | 'failed' | 'interrupted' | 'recovery-required';
 export interface JobRecord {
     id: string;
@@ -37,6 +46,8 @@ export interface SessionState {
     revision: number;
     lead: ModelReference;
     partner: ModelReference;
+    /** Composite preset model currently selected for this session, if any. */
+    composite?: ModelReference;
     partnerPool?: ModelReference[];
     partnerIndex?: number;
     parentAgentID?: string;

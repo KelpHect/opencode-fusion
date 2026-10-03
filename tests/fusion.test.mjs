@@ -803,3 +803,118 @@ test('lead context mirrors into the next handoff prompt', async () => {
   assert.ok(seen[0].prompt.includes('leadContext'), 'handoff carries mirrored lead context')
   assert.ok(seen[0].prompt.includes('replace parser then run tests'))
 })
+
+test('resolvePresets validates preset structure', async () => {
+  const { resolvePresets } = await import('../src/index.ts')
+  assert.deepEqual(resolvePresets(undefined), [])
+  assert.deepEqual(resolvePresets({}), [])
+  assert.deepEqual(
+    resolvePresets({ presets: [{ lead: 'a/b', partner: 'c/d,e/f', name: 'x' }] }),
+    [{ name: 'x', lead: 'a/b', partner: 'c/d,e/f' }],
+  )
+  assert.throws(() => resolvePresets({ presets: 'nope' }), (e) => e.code === 'invalid_option')
+  assert.throws(() => resolvePresets({ presets: [{ lead: 1, partner: 'c/d' }] }))
+  assert.throws(() => resolvePresets({ presets: [{ lead: 'a/b' }] }))
+})
+
+test('composite configure skips switchModel and records composite', async () => {
+  const { ctx, calls, sessionMap } = makeCtx({ sessions: { root1: rootSession() } })
+  const controller = makeController(ctx)
+  const composite = { providerID: 'opencode-fusion-fakeA', id: 'preset-0', variant: 'max' }
+  sessionMap.get('root1').model = composite
+  await controller.configure('root1', 'fakeA/lead#max', 'fakeB/worker#max', { composite })
+  assert.equal(calls.switchModel.length, 0, 'composite path must not switch the session model')
+  const status = await controller.status('root1')
+  assert.equal(status.data.composite, 'opencode-fusion-fakeA/preset-0#max')
+  assert.equal(status.data.enabled, true)
+})
+
+test('model selection of the composite does not pause fusion', async () => {
+  const { controller } = await configured()
+  const composite = { providerID: 'opencode-fusion-fakeA', id: 'preset-0', variant: 'max' }
+  await controller.configure('root1', 'fakeA/lead#max', 'fakeB/worker#max', { composite })
+  await controller.onModelSelected('root1', composite)
+  let status = await controller.status('root1')
+  assert.equal(status.data.paused, false)
+  await controller.onModelSelected('root1', { providerID: 'other', id: 'x' })
+  status = await controller.status('root1')
+  assert.equal(status.data.paused, true, 'unrelated model still pauses')
+})
+
+test('resume accepts the composite model as the session model', async () => {
+  const { controller, sessionMap } = await configured()
+  const composite = { providerID: 'opencode-fusion-fakeA', id: 'preset-0', variant: 'max' }
+  await controller.configure('root1', 'fakeA/lead#max', 'fakeB/worker#max', { composite })
+  sessionMap.get('root1').model = composite
+  await controller.pause('root1')
+  const out = await controller.resume('root1')
+  assert.equal(out.text, NOTICE.resumed)
+})
+
+test('registerPresets registers a composite provider with lead-backed model', async () => {
+  const { registerPresets } = await import('../src/index.ts')
+  const added = []
+  const hooks = []
+  const ctx = {
+    aisdk: {
+      hook: async (name, cb, filter) => {
+        hooks.push({ name, filter })
+        return { dispose: async () => {} }
+      },
+    },
+    provider: {
+      transform: async (cb) => {
+        cb({ add: (rec) => added.push(rec) })
+        return { dispose: async () => {} }
+      },
+    },
+  }
+  const registration = await registerPresets(
+    ctx,
+    [{ name: 'Fixture', lead: 'fakeA/lead#max', partner: 'fakeB/worker#max,fakeB/worker2#max' }],
+    [],
+    {
+      listProviders: async () => [
+        { id: 'fakeA', package: 'aisdk:file:///sdk.ts' },
+        { id: 'fakeB', package: 'aisdk:file:///sdk.ts' },
+      ],
+      listModels: async () => MODELS,
+    },
+  )
+  assert.equal(registration.skipped.length, 0)
+  assert.equal(registration.presets.length, 1)
+  const preset = registration.presets[0]
+  assert.equal(preset.providerID, 'opencode-fusion-fakeA')
+  assert.equal(preset.modelID, 'preset-0')
+  assert.equal(added.length, 1)
+  const record = added[0]
+  assert.equal(record.info.package, 'aisdk:file:///sdk.ts')
+  assert.equal(record.models.length, 1)
+  assert.equal(record.models[0].modelID, 'lead')
+  const lang = hooks.find((h) => h.filter?.providerID === 'opencode-fusion-fakeA')
+  assert.ok(lang, 'pass-through language hook registered for the composite provider')
+  const capture = hooks.find((h) => h.name === 'language' && Object.keys(h.filter ?? {}).length === 0)
+  assert.ok(capture, 'unfiltered sdk capture hook registered')
+})
+
+test('registerPresets skips presets whose lead provider never appears', async () => {
+  const { registerPresets } = await import('../src/index.ts')
+  const hooks = []
+  const ctx = {
+    aisdk: { hook: async (n, c, f) => (hooks.push({ n, f }), { dispose: async () => {} }) },
+    provider: { transform: async () => ({ dispose: async () => {} }) },
+  }
+  const registration = await registerPresets(
+    ctx,
+    [{ lead: 'ghost/model', partner: 'fakeB/worker' }],
+    [],
+    {
+      listProviders: async () => [{ id: 'fakeB', package: 'aisdk:file:///sdk.ts' }],
+      listModels: async () => MODELS,
+      maxWaitMs: 50,
+      delayMs: 5,
+    },
+  )
+  assert.equal(registration.presets.length, 0)
+  assert.equal(registration.skipped[0]?.reason, 'lead_provider_unavailable')
+})

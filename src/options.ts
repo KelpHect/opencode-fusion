@@ -1,5 +1,5 @@
 import { DEFAULT_OPTIONS, OPTION_LIMITS } from './policy.js'
-import { FusionError, type FusionOptions } from './types.js'
+import { FusionError, type FusionOptions, type FusionPreset } from './types.js'
 
 const LIMIT_KEYS = [
   'maxDelegations',
@@ -28,4 +28,25 @@ export function resolveOptions(raw: Readonly<Record<string, unknown>> | undefine
     resolved.backgroundByDefault = raw.backgroundByDefault
   }
   return resolved
+}
+
+export function resolvePresets(
+  raw: Readonly<Record<string, unknown>> | undefined,
+): FusionPreset[] {
+  const value = raw?.presets
+  if (value === undefined) return []
+  if (!Array.isArray(value)) throw new FusionError('invalid_option', 'presets')
+  return value.map((entry, index) => {
+    const preset = entry as FusionPreset | undefined
+    if (
+      !preset ||
+      typeof preset !== 'object' ||
+      typeof preset.lead !== 'string' ||
+      typeof preset.partner !== 'string' ||
+      (preset.name !== undefined && typeof preset.name !== 'string')
+    ) {
+      throw new FusionError('invalid_option', `presets[${index}]`)
+    }
+    return { name: preset.name, lead: preset.lead, partner: preset.partner }
+  })
 }

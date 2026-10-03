@@ -96,14 +96,23 @@ async function main() {
     JSON.stringify(pluginIDs),
   )
 
-  const models = await api('GET', '/api/model')
-  const modelIDs = (models.json?.data ?? models.json ?? []).map(
-    (m) => `${m.providerID}/${m.id ?? m.modelID}`,
-  )
+  let models = await api('GET', '/api/model')
+  const modelIDsOf = (m) =>
+    (m.json?.data ?? m.json ?? []).map((x) => `${x.providerID}/${x.id ?? x.modelID}`)
+  for (let i = 0; i < 20 && !modelIDsOf(models).includes('opencode-fusion-fakeproviderA/preset-0'); i++) {
+    await sleep(500)
+    models = await api('GET', '/api/model')
+  }
+  const modelIDs = modelIDsOf(models)
   record(
     'fixture models registered',
     modelIDs.includes('fakeproviderA/lead') && modelIDs.includes('fakeproviderB/worker'),
     JSON.stringify(modelIDs.slice(0, 12)),
+  )
+  record(
+    'composite preset registered',
+    modelIDs.includes('opencode-fusion-fakeproviderA/preset-0'),
+    JSON.stringify(modelIDs.filter((x) => x.includes('fusion'))),
   )
 
   const created = await api('POST', '/api/session', { title: 'fusion-e2e' })
@@ -111,12 +120,11 @@ async function main() {
   record('session created', typeof root === 'string' && root.length > 0, String(root))
   if (!root) return results
 
-  const cfg = await api('POST', `/api/session/${root}/command`, {
-    name: 'fusion',
-    text: 'configure fakeproviderA/lead#max fakeproviderB/worker#max',
+  const sel = await api('POST', `/api/session/${root}/model`, {
+    model: { providerID: 'opencode-fusion-fakeproviderA', id: 'preset-0', variant: 'max' },
   })
-  record('configure accepted', cfg.status < 400, `status=${cfg.status}`)
-  await sleep(1_500)
+  record('composite preset selected', sel.status < 400, `status=${sel.status}`)
+  await sleep(2_500)
 
   const t0 = Date.now()
   await api('POST', `/api/session/${root}/prompt`, {
@@ -137,37 +145,58 @@ async function main() {
       texts.some((t) => t.includes('FUSION_E2E_WORKER_OK')),
   )
 
-  const sessions = await api('GET', '/api/session')
-  const sessionList = sessions.json?.data ?? sessions.json ?? []
-  const children = sessionList.filter((s) => s.parentID === root)
-  const childID = children[0]?.id
-  record('child session linked to root', children.length >= 1, childID)
+  await api('POST', `/api/session/${root}/command`, { name: 'fusion', text: 'status' })
+  await api('POST', `/api/session/${root}/prompt`, { text: 'Report.' })
+  await waitIdle(root)
+  const cTexts = messageTexts(await sessionMessages(root))
+  const cStatus = cTexts.filter((t) => t.includes('"composite"')).at(0) ?? ''
+  record(
+    'composite selection configures pairing',
+    /"enabled":\s*true/.test(cStatus) &&
+      cStatus.includes('opencode-fusion-fakeproviderA/preset-0'),
+    cStatus.slice(0, 220),
+  )
+
+  const delegateParts = (msgs) =>
+    (msgs ?? []).flatMap((m) =>
+      (m.parts ?? m.content ?? []).filter(
+        (p) => p?.type === 'tool' && (p.name === 'fusion_delegate' || p.tool === 'fusion_delegate'),
+      ),
+    )
+  const childID =
+    delegateParts(messages).map((p) => p.state?.metadata?.sessionID).filter(Boolean).at(-1)
+  record('child session linked to root', typeof childID === 'string', childID)
   const child = childID ? await api('GET', `/api/session/${childID}`) : undefined
-  const childModel = child?.json?.data?.model ?? child?.json?.model
+  const childRec = child?.json?.data ?? child?.json
+  const childModel = childRec?.model
   record(
     'child model variant max',
-    childModel?.providerID === 'fakeproviderB' &&
+    childRec?.parentID === root &&
+      childModel?.providerID === 'fakeproviderB' &&
       childModel?.id === 'worker' &&
       childModel?.variant === 'max',
-    JSON.stringify(childModel),
+    JSON.stringify({ parentID: childRec?.parentID, model: childModel }),
   )
-  fs.writeFileSync(
-    path.join(OUT_DIR, 'child-session.json'),
-    JSON.stringify(child?.json, null, 2),
-  )
+  if (child?.json !== undefined) {
+    fs.writeFileSync(
+      path.join(OUT_DIR, 'child-session.json'),
+      JSON.stringify(child.json, null, 2),
+    )
+  }
 
   await api('POST', `/api/session/${root}/prompt`, {
     text: 'Run the second Fusion fixture assignment.',
   })
   await waitIdle(root)
-  const sessions2 = await api('GET', '/api/session')
-  const children2 = (sessions2.json?.data ?? sessions2.json ?? []).filter(
-    (s) => s.parentID === root,
-  )
+  const messages2 = await sessionMessages(root)
+  const childID2 = delegateParts(messages2)
+    .map((p) => p.state?.metadata?.sessionID)
+    .filter(Boolean)
+    .at(-1)
   record(
     'second handoff reuses same child',
-    children2.length === children.length && children2[0]?.id === childID,
-    JSON.stringify(children2.map((c) => c.id)),
+    childID2 === childID,
+    `first=${childID} second=${childID2}`,
   )
 
   const wire = fs.existsSync(FIXTURE_LOG)
@@ -243,15 +272,11 @@ async function main() {
     iTexts.filter((t) => t.includes('"paused"') && t.includes('"lead"')).at(0) ?? ''
   record('interrupt pauses fusion state', /"paused":\s*true/.test(statusText), statusText.slice(0, 200))
 
-  const sessions3 = await api('GET', '/api/session')
-  const lastChild = (sessions3.json?.data ?? sessions3.json ?? [])
-    .filter((s) => s.parentID === root)
-    .at(-1)
-  const childMsgs = lastChild ? await sessionMessages(lastChild.id) : []
+  const childMsgs = childID ? await sessionMessages(childID) : []
   record(
     'worker turn interrupted',
     childMsgs.some((m) => m.outcome === 'interrupted'),
-    `child=${lastChild?.id}`,
+    `child=${childID}`,
   )
 
   await api('POST', `/api/session/${root}/command`, { name: 'fusion', text: 'resume' })
@@ -288,11 +313,12 @@ async function main() {
     text: 'Run the Fusion fixture assignment.',
   })
   await waitIdle(root)
-  const sessions4 = await api('GET', '/api/session')
-  const children4 = (sessions4.json?.data ?? sessions4.json ?? []).filter(
-    (s) => s.parentID === root,
-  )
-  const sameChild = children4.length === 1 && children4[0]?.id === childID
+  const poolMessages = await sessionMessages(root)
+  const latestChildID = delegateParts(poolMessages)
+    .map((p) => p.state?.metadata?.sessionID)
+    .filter(Boolean)
+    .at(-1)
+  const sameChild = latestChildID === childID
   const wire2 = fs.existsSync(FIXTURE_LOG)
     ? fs
         .readFileSync(FIXTURE_LOG, 'utf8')

@@ -1,10 +1,13 @@
 import { Plugin } from '@opencode/plugin';
 import { COMMAND_HELP, INPUT_TEXT, PLUGIN_ID, TOOL_NAMES, TOOL_TEXT, } from './policy.js';
 import { FusionController, stripUndefined } from './controller.js';
-import { resolveOptions } from './options.js';
+import { canonicalRef } from './models.js';
+import { resolveOptions, resolvePresets } from './options.js';
+import { registerPresets } from './presets.js';
 import { FusionError } from './types.js';
 export { FusionController, stripUndefined, workerAgentIDFor } from './controller.js';
-export { resolveOptions } from './options.js';
+export { resolveOptions, resolvePresets } from './options.js';
+export { registerPresets } from './presets.js';
 export { parseModelReference, canonicalRef, findAvailable, requireAvailable, sameRef, safeModelListing, } from './models.js';
 export { FusionStore, MutexMap, STATE_PREFIX, stateKey } from './storage.js';
 export { LeaseRegistry, canonicalDirectory, isReadOnlyTool } from './lease.js';
@@ -56,9 +59,25 @@ async function runCommand(controller, sessionID, args) {
     }
 }
 async function setupFusion(ctx) {
-    const options = resolveOptions(ctx.options);
+    const rawOptions = ctx.options;
+    const options = resolveOptions(rawOptions);
     const controller = new FusionController(ctx, options);
     const registrations = [];
+    // `/models` presets: each entry becomes a composite model under a
+    // `opencode-fusion-*` provider. Selecting it configures the session.
+    // Registration retries until the lead provider appears (plugin load order is
+    // arbitrary), so it runs in the background and must not delay setup.
+    const declared = resolvePresets(rawOptions);
+    const presetByModel = new Map();
+    if (declared.length > 0) {
+        void (async () => {
+            const registration = await registerPresets(ctx, declared, registrations);
+            controller.setPresets(registration);
+            for (const preset of registration.presets) {
+                presetByModel.set(`${preset.providerID}/${preset.modelID}`, preset);
+            }
+        })().catch(() => undefined);
+    }
     registrations.push(await ctx.tool.transform((editor) => {
         editor.add({
             name: TOOL_NAMES.delegate,
@@ -177,7 +196,21 @@ async function setupFusion(ctx) {
                 else if (event.type === 'session.model.selected') {
                     const data = event.data;
                     if (data.sessionID && data.model) {
-                        await controller.onModelSelected(data.sessionID, data.model).catch(() => undefined);
+                        const preset = presetByModel.get(`${data.model.providerID}/${data.model.id}`);
+                        if (preset) {
+                            await controller
+                                .configure(data.sessionID, canonicalRef(preset.lead), preset.partner, {
+                                composite: {
+                                    providerID: data.model.providerID,
+                                    id: data.model.id,
+                                    variant: data.model.variant,
+                                },
+                            })
+                                .catch((error) => emitError(ctx, data.sessionID, error).catch(() => undefined));
+                        }
+                        else {
+                            await controller.onModelSelected(data.sessionID, data.model).catch(() => undefined);
+                        }
                     }
                 }
             }

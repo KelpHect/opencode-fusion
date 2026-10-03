@@ -39,9 +39,19 @@ export declare class FusionController {
     private readonly runnerOverride?;
     private readonly listModelsOverride?;
     readonly workerDefinitions: Map<string, WorkerDefinition>;
+    private presetInfo;
     private disposed;
+    setPresets(info: {
+        presets: {
+            providerID: string;
+            modelID: string;
+        }[];
+        skipped: unknown[];
+    }): void;
     constructor(ctx: PluginContext, options?: Partial<FusionOptions>, deps?: ControllerDeps);
-    configure(rootID: string, leadReference: string, partnerReference: string): Promise<CommandOutput>;
+    configure(rootID: string, leadReference: string, partnerReference: string, opts?: {
+        composite?: ModelReference;
+    }): Promise<CommandOutput>;
     status(rootID: string): Promise<CommandOutput>;
     pause(rootID: string): Promise<CommandOutput>;
     resume(rootID: string): Promise<CommandOutput>;

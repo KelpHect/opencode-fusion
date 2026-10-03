@@ -88,7 +88,14 @@ export class FusionController {
     runnerOverride;
     listModelsOverride;
     workerDefinitions = new Map();
+    presetInfo = {
+        presets: [],
+        skipped: [],
+    };
     disposed = false;
+    setPresets(info) {
+        this.presetInfo = info;
+    }
     constructor(ctx, options, deps = {}) {
         this.ctx = ctx;
         this.opts = { ...DEFAULT_OPTIONS, ...(options ?? {}) };
@@ -101,7 +108,7 @@ export class FusionController {
         this.leases = deps.leases ?? workspaceLeases;
         this.leaseKey = canonicalDirectory(String(ctx.location.directory));
     }
-    async configure(rootID, leadReference, partnerReference) {
+    async configure(rootID, leadReference, partnerReference, opts) {
         const lead = parseModelReference(leadReference);
         const partnerPool = partnerReference
             .split(',')
@@ -129,6 +136,7 @@ export class FusionController {
                 revision: (previous?.revision ?? 0) + 1,
                 lead,
                 partner,
+                composite: opts?.composite,
                 partnerPool,
                 partnerIndex: 0,
                 parentAgentID: previous?.parentAgentID,
@@ -148,10 +156,12 @@ export class FusionController {
                 await this.buildWorkerDefinition(state, rootID);
                 if (this.jobs.size === 0)
                     await this.ctx.agent.reload();
-                await this.ctx.session.switchModel({
-                    sessionID: rootID,
-                    model: { id: lead.id, providerID: lead.providerID, variant: lead.variant },
-                });
+                if (!opts?.composite) {
+                    await this.ctx.session.switchModel({
+                        sessionID: rootID,
+                        model: { id: lead.id, providerID: lead.providerID, variant: lead.variant },
+                    });
+                }
             }
             catch (error) {
                 if (previous) {
@@ -196,7 +206,7 @@ export class FusionController {
         await this.mutex.run(rootID, async () => {
             const root = await this.getSession(rootID);
             const current = root?.model;
-            if (!sameRef(current, state.lead)) {
+            if (!sameRef(current, state.lead) && !sameRef(current, state.composite)) {
                 throw new FusionError('model_mismatch', canonicalRef(state.lead));
             }
             state.enabled = true;
@@ -471,10 +481,10 @@ export class FusionController {
         const state = this.states.get(sessionID);
         if (!state || !state.enabled)
             return;
-        if (sameRef(state.lead, model))
+        if (sameRef(state.lead, model) || sameRef(state.composite, model))
             return;
         const jobID = await this.mutex.run(sessionID, async () => {
-            if (sameRef(state.lead, model))
+            if (sameRef(state.lead, model) || sameRef(state.composite, model))
                 return undefined;
             state.paused = true;
             state.revision += 1;
@@ -1064,12 +1074,17 @@ export class FusionController {
             paused: state.paused,
             revision: state.revision,
             lead: canonicalRef(state.lead),
+            composite: state.composite ? canonicalRef(state.composite) : undefined,
             partner: canonicalRef(this.activePartner(state)),
             partnerPool: state.partnerPool?.map((ref) => canonicalRef(ref)),
             partnerIndex: state.partnerIndex,
             parentAgentID: state.parentAgentID,
             workerAgentID: state.workerAgentID,
             workerSessionID: state.workerSessionID,
+            presets: this.presetInfo.presets.length
+                ? this.presetInfo.presets.map((p) => `${p.providerID}/${p.modelID}`)
+                : undefined,
+            skippedPresets: this.presetInfo.skipped.length ? this.presetInfo.skipped : undefined,
             delegations: { used: state.delegations, limit: options.maxDelegations },
             activeJob: this.jobOrUndef(state, state.activeJob),
             lastJob: this.jobOrUndef(state, state.lastJob),

@@ -8,11 +8,15 @@ import {
   TOOL_TEXT,
 } from './policy.js'
 import { FusionController, stripUndefined, type CommandOutput } from './controller.js'
-import { resolveOptions } from './options.js'
+import { canonicalRef } from './models.js'
+import { resolveOptions, resolvePresets } from './options.js'
+import { registerPresets, type ResolvedPreset } from './presets.js'
 import { FusionError, type ToolContextLike } from './types.js'
 
 export { FusionController, stripUndefined, workerAgentIDFor } from './controller.js'
-export { resolveOptions } from './options.js'
+export { resolveOptions, resolvePresets } from './options.js'
+export { registerPresets } from './presets.js'
+export type { PresetRegistration, ResolvedPreset } from './presets.js'
 export {
   parseModelReference,
   canonicalRef,
@@ -27,6 +31,7 @@ export { FusionError } from './types.js'
 export type {
   ControllerDeps,
   FusionOptions,
+  FusionPreset,
   JobRecord,
   ModelReference,
   Runner,
@@ -94,9 +99,26 @@ async function runCommand(
 }
 
 async function setupFusion(ctx: Plugin.Context) {
-  const options = resolveOptions(ctx.options as Record<string, unknown> | undefined)
+  const rawOptions = ctx.options as Record<string, unknown> | undefined
+  const options = resolveOptions(rawOptions)
   const controller = new FusionController(ctx, options)
   const registrations: { dispose: () => Promise<void> }[] = []
+
+  // `/models` presets: each entry becomes a composite model under a
+  // `opencode-fusion-*` provider. Selecting it configures the session.
+  // Registration retries until the lead provider appears (plugin load order is
+  // arbitrary), so it runs in the background and must not delay setup.
+  const declared = resolvePresets(rawOptions)
+  const presetByModel = new Map<string, ResolvedPreset>()
+  if (declared.length > 0) {
+    void (async () => {
+      const registration = await registerPresets(ctx, declared, registrations)
+      controller.setPresets(registration)
+      for (const preset of registration.presets) {
+        presetByModel.set(`${preset.providerID}/${preset.modelID}`, preset)
+      }
+    })().catch(() => undefined)
+  }
 
   registrations.push(
     await ctx.tool.transform((editor) => {
@@ -233,7 +255,22 @@ async function setupFusion(ctx: Plugin.Context) {
             model?: { id: string; providerID: string; variant?: string }
           }
           if (data.sessionID && data.model) {
-            await controller.onModelSelected(data.sessionID, data.model).catch(() => undefined)
+            const preset = presetByModel.get(`${data.model.providerID}/${data.model.id}`)
+            if (preset) {
+              await controller
+                .configure(data.sessionID, canonicalRef(preset.lead), preset.partner, {
+                  composite: {
+                    providerID: data.model.providerID,
+                    id: data.model.id,
+                    variant: data.model.variant,
+                  },
+                })
+                .catch((error) =>
+                  emitError(ctx, data.sessionID as string, error).catch(() => undefined),
+                )
+            } else {
+              await controller.onModelSelected(data.sessionID, data.model).catch(() => undefined)
+            }
           }
         }
       }

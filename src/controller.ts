@@ -155,7 +155,15 @@ export class FusionController {
   private readonly runnerOverride?: Runner
   private readonly listModelsOverride?: () => Promise<readonly unknown[]>
   readonly workerDefinitions = new Map<string, WorkerDefinition>()
+  private presetInfo: { presets: { providerID: string; modelID: string }[]; skipped: unknown[] } = {
+    presets: [],
+    skipped: [],
+  }
   private disposed = false
+
+  setPresets(info: { presets: { providerID: string; modelID: string }[]; skipped: unknown[] }) {
+    this.presetInfo = info
+  }
 
   constructor(
     private readonly ctx: PluginContext,
@@ -177,6 +185,7 @@ export class FusionController {
     rootID: string,
     leadReference: string,
     partnerReference: string,
+    opts?: { composite?: ModelReference },
   ): Promise<CommandOutput> {
     const lead = parseModelReference(leadReference)
     const partnerPool = partnerReference
@@ -202,6 +211,7 @@ export class FusionController {
         revision: (previous?.revision ?? 0) + 1,
         lead,
         partner,
+        composite: opts?.composite,
         partnerPool,
         partnerIndex: 0,
         parentAgentID: previous?.parentAgentID,
@@ -220,10 +230,12 @@ export class FusionController {
       try {
         await this.buildWorkerDefinition(state, rootID)
         if (this.jobs.size === 0) await this.ctx.agent.reload()
-        await this.ctx.session.switchModel({
-          sessionID: rootID,
-          model: { id: lead.id, providerID: lead.providerID, variant: lead.variant },
-        } as never)
+        if (!opts?.composite) {
+          await this.ctx.session.switchModel({
+            sessionID: rootID,
+            model: { id: lead.id, providerID: lead.providerID, variant: lead.variant },
+          } as never)
+        }
       } catch (error) {
         if (previous) {
           await this.store.set(rootID, previous).catch(() => undefined)
@@ -265,7 +277,7 @@ export class FusionController {
     await this.mutex.run(rootID, async () => {
       const root = await this.getSession(rootID)
       const current = root?.model as ModelReference | undefined
-      if (!sameRef(current, state.lead)) {
+      if (!sameRef(current, state.lead) && !sameRef(current, state.composite)) {
         throw new FusionError('model_mismatch', canonicalRef(state.lead))
       }
       state.enabled = true
@@ -551,9 +563,9 @@ export class FusionController {
   async onModelSelected(sessionID: string, model: ModelReference) {
     const state = this.states.get(sessionID)
     if (!state || !state.enabled) return
-    if (sameRef(state.lead, model)) return
+    if (sameRef(state.lead, model) || sameRef(state.composite, model)) return
     const jobID = await this.mutex.run(sessionID, async () => {
-      if (sameRef(state.lead, model)) return undefined
+      if (sameRef(state.lead, model) || sameRef(state.composite, model)) return undefined
       state.paused = true
       state.revision += 1
       await this.store.set(sessionID, state)
@@ -1163,12 +1175,17 @@ export class FusionController {
       paused: state.paused,
       revision: state.revision,
       lead: canonicalRef(state.lead),
+      composite: state.composite ? canonicalRef(state.composite) : undefined,
       partner: canonicalRef(this.activePartner(state)),
       partnerPool: state.partnerPool?.map((ref) => canonicalRef(ref)),
       partnerIndex: state.partnerIndex,
       parentAgentID: state.parentAgentID,
       workerAgentID: state.workerAgentID,
       workerSessionID: state.workerSessionID,
+      presets: this.presetInfo.presets.length
+        ? this.presetInfo.presets.map((p) => `${p.providerID}/${p.modelID}`)
+        : undefined,
+      skippedPresets: this.presetInfo.skipped.length ? this.presetInfo.skipped : undefined,
       delegations: { used: state.delegations, limit: options.maxDelegations },
       activeJob: this.jobOrUndef(state, state.activeJob),
       lastJob: this.jobOrUndef(state, state.lastJob),

@@ -95,6 +95,54 @@ All models must already be available in your OpenCode model list
 (`/fusion models` shows what the plugin can see). Configure validates the whole
 pool before enabling and switches the session's model to the lead.
 
+### `/models` presets (composite models)
+
+Instead of running `/fusion configure` inside a session, you can declare named
+pairings up front — each one appears in OpenCode's `/models` picker as a
+composite `Fusion` model, mirroring Devin's picker entries:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": [
+    {
+      "package": "C:/path/to/opencode-fusion",
+      "options": {
+        "presets": [
+          {
+            "name": "GPT-5.2 + SWE-2",
+            "lead": "openai/gpt-5.2#high",
+            "partner": "devin/swe-2#max,openai/o3-mini#high"
+          },
+          { "lead": "opencode/big-pickle", "partner": "devin/swe-2#max" }
+        ]
+      }
+    }
+  ]
+}
+```
+
+- Each preset becomes a model under a `Fusion (<lead-provider>)` provider —
+  e.g. `opencode-fusion-openai/preset-0`. Selecting it in `/models` configures
+  and enables the pairing automatically; no `/fusion configure` needed.
+- The composite is **backed by the lead model's own package**, so requests to
+  it are served by the lead — the picker entry is a real model, not a macro.
+  `/fusion status` reports the selected composite under `composite`.
+- `partner` still accepts the comma-separated escalation ladder; `name` is
+  optional (a `Fusion: <lead> + <partner>` label is generated).
+- **Important:** plugin entries with `options` must use the `plugins` array key
+  (plural). The `plugin` singular key accepts only plain string specs and
+  silently drops `{package, options}` objects (observed on 2.0.2x).
+- If a preset's lead provider/model isn't available at load time (e.g. its
+  plugin loads later), registration retries briefly and reports unresolved
+  presets under `skippedPresets` in `/fusion status`.
+- The composite provider clones the lead provider's `settings`, `headers`,
+  and `body` (e.g. `baseURL`, API keys) so its SDK instance is configured
+  exactly like the lead's. As a second layer, the finished language model is
+  also captured whenever any lead model is instantiated, so providers whose
+  SDK factory is inert (e.g. `aisdk:` plugins that mint models in a language
+  hook instead) work once that provider has served one request.
+
 ## Commands
 
 | Command | Effect |

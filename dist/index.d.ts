@@ -1,10 +1,12 @@
 import { Plugin } from '@opencode/plugin';
 export { FusionController, stripUndefined, workerAgentIDFor } from './controller.js';
-export { resolveOptions } from './options.js';
+export { resolveOptions, resolvePresets } from './options.js';
+export { registerPresets } from './presets.js';
+export type { PresetRegistration, ResolvedPreset } from './presets.js';
 export { parseModelReference, canonicalRef, findAvailable, requireAvailable, sameRef, safeModelListing, } from './models.js';
 export { FusionStore, MutexMap, STATE_PREFIX, stateKey } from './storage.js';
 export { LeaseRegistry, canonicalDirectory, isReadOnlyTool } from './lease.js';
 export { FusionError } from './types.js';
-export type { ControllerDeps, FusionOptions, JobRecord, ModelReference, Runner, RunnerInput, RunnerResult, SessionState, StorageLike, ToolContextLike, } from './types.js';
+export type { ControllerDeps, FusionOptions, FusionPreset, JobRecord, ModelReference, Runner, RunnerInput, RunnerResult, SessionState, StorageLike, ToolContextLike, } from './types.js';
 declare const _default: Plugin.Plugin;
 export default _default;
