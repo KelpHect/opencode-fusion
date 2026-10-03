@@ -218,8 +218,21 @@ npm run test:e2e   # full engine test (needs a running sandbox server)
 
 The e2e driver (`tests/e2e/run.mjs`) exercises foreground delegation, child
 session linkage and reuse, `#variant` propagation onto the wire, background
-delivery without loops, interrupt/pause/resume, and partner-pool escalation —
-18 checks against a fixture model provider (`tests/e2e/fixture`).
+delivery without loops, interrupt/pause/resume, composite `/models` selection,
+and partner-pool escalation — 20 checks against a fixture model provider
+(`tests/e2e/fixture`).
+
+`tests/live-zen.mjs` is an optional live check against a real OpenCode
+server with a composite preset backed by OpenCode Zen free models (no
+fixture): it proves a real LLM lead calls `fusion_delegate`, a real partner
+executes in a persistent linked child, and `/fusion status` reports the
+composite. Point it at your server:
+
+```sh
+FUSION_LIVE_URL=http://127.0.0.1:49374 \
+FUSION_LIVE_COMPOSITE=opencode-fusion-opencode/preset-0 \
+node tests/live-zen.mjs
+```
 
 ## License
 
