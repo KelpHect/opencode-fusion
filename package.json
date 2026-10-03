@@ -1,0 +1,55 @@
+{
+  "name": "opencode-fusion",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Configurable cross-provider Fusion-style lead/partner coordination plugin for OpenCode",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KelpHect/opencode-fusion"
+  },
+  "keywords": [
+    "opencode",
+    "plugin",
+    "fusion",
+    "multi-model",
+    "subagent",
+    "delegation"
+  ],
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "index.ts",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@opencode/plugin": "2.0.21",
+    "effect": "4.0.0-rc.112"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.3",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "node --import tsx --test tests/*.test.mjs",
+    "test:e2e": "node tests/e2e/run.mjs",
+    "pack:check": "npm pack --dry-run"
+  }
+}
